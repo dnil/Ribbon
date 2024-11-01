@@ -46,6 +46,129 @@ class GenomicFile {
   }
 }
 
+
+// CRAM file utilities
+export class CramFile extends GenomicFile {
+  format = "cram";
+  header = {
+    raw: "",
+    sq: [],
+  };
+
+  async mount() {
+    await super.mount();
+
+    // Ignore if not a URL
+    if (this.files[0] instanceof File) {
+      return;
+    }
+
+    // Download BAI in one go so it's faster than downloading it 1 MB at a time when lazy mount a URL with Aioli
+    const cram_url = this.files[0];
+    const crai_url = cram_url + ".crai";
+    let blob;
+    try {
+      blob = await fetch(crai_url).then(d => d.blob());
+    } catch (error) {
+      alert(`Could not download this URL:\n\n${bai_url}`);
+      throw new Error(error);
+    }
+
+    // Mount BAI
+    const file_name = this.paths[0].replace("/shared/data/", "") + ".bai";
+    const [crai_path] = await CLI.mount([{
+      name: file_name,
+      data: blob
+    }]);
+    this.paths[1] = crai_path;
+    console.log("Mounted index:", crai_path);
+  }
+
+  async parseHeader() {
+    const raw = await CLI.exec(`samtools view -H ${this.paths[0]}`);
+    if (!raw) {
+      console.error(
+        "No header found when running `samtools view -H` This may not be a valid BAM file."
+      );
+      return;
+    }
+
+    this.header = {
+      sq: parseBamHeader(raw),
+    };
+    this.ready = true;
+    return this.header;
+  }
+
+
+   async fetch(chrom, start, end) {
+    if (!this.header.sq.find((d) => d.name === chrom)) {
+      user_message_ribbon("Warning", `Reference sequence "${chrom}" was not found in the header of the CRAM. Note that chr prefix must be consistent across files.`);
+      console.warn(`Reference sequence "${chrom}" was not found in the header of the CRAM. Note that chr prefix must be consistent across files.`);
+        return [];
+    }
+
+    const region = `${chrom}:${start}-${end}`;
+    let subsampling = "";
+
+    // Use "samtools coverage" to estimate how many bases we would need to load (in contrast,
+    // using "samtools view -c" would only tell us the number of reads, which is misleading
+    // for long-read data!). This is generally much much faster than trying to load the region
+    // so for most cases, the additional runtime is negligible.
+
+     // It appears the cram version can stay the same. It will keep filling the ref cache though.
+    console.time(`samtools coverage ${region}`);
+    const coverage = await CLI.exec(
+      `samtools coverage ${this.paths[0]} -r ${region} --no-header`
+    );
+    console.timeEnd(`samtools coverage ${region}`);
+
+    // Estimate how much data we're looking at in the selected region, and subsample if
+    // the user is trying to load too much data. Col #5 = "covbases", Col #7 = "meandepth".
+    // See http://www.htslib.org/doc/samtools-coverage.html for documentation.
+    const stats = coverage.split("\t");
+    let samplingPct = Math.round((1e6 / (+stats[4] * +stats[6])) * 100) / 100;
+    if (samplingPct < 1 && _automation_running && !automation_subsample) {
+      if (!_automation_running) {
+        samplingPct = prompt(
+          `⚠️ Warning\n\nThis region contains a lot of data and may crash your browser.\n\nEnter the fraction of reads to sample (use the default if you're not sure):`,
+          samplingPct
+        );
+      }
+      subsampling = ` -s ${samplingPct}`;
+      console.warn(
+        `Region contains a lot of data; sampling ${Math.round(
+          samplingPct * 100
+        )}% of reads.`
+      );
+    }
+
+
+    // Stream the SAM output to a temporary file on the virtual filesystem inside the WebWorker.
+    // The alternative is to append each line output to Aioli's STDOUT variable, which involves
+    // converting bytes to strings each time, as opposed to doing it once at the end when we call
+    // CLI.cat(). Based on a few tests run on Illumina and PacBio data, using the command
+    // "samtools view -o" followed by "cat" is ~2-3X faster than simply using "samtools view".
+    console.time(`samtools view ${region}`);
+    let std_err_samtools = await CLI.exec(
+      `samtools view${subsampling} -T ${path_fa} -t ${path_fai} -o /tmp/reads.sam ${this.paths[0]} ${region}`
+    );
+    if (std_err_samtools.includes("[E::")) {
+      console.error(std_err_samtools);
+    }
+
+    const raw = await CLI.cat("/tmp/reads.sam");
+    console.timeEnd(`samtools view ${region}`);
+
+    if (!raw) {
+      console.warn("No reads in the bam file at this location");
+      return [];
+    }
+
+    return parseBamReads(raw);
+  }
+}
+
 // BAM file utilities
 export class BamFile extends GenomicFile {
   // files = []; // [bam, index]
@@ -85,6 +208,7 @@ export class BamFile extends GenomicFile {
     console.log("Mounted index:", bai_path);
   }
 
+  // share this?
   async parseHeader() {
     const raw = await CLI.exec(`samtools view -H ${this.paths[0]}`);
     if (!raw) {
@@ -103,8 +227,8 @@ export class BamFile extends GenomicFile {
 
   async fetch(chrom, start, end) {
     if (!this.header.sq.find((d) => d.name === chrom)) {
-      user_message_ribbon("Warning", `Reference sequence "${chrom}" was not found in the header of the BAM. Note that chr prefix must be consistent across files.`);
-      console.warn(`Reference sequence "${chrom}" was not found in the header of the BAM. Note that chr prefix must be consistent across files.`);
+      user_message_ribbon("Warning", `Reference sequence "${chrom}" was not found in the header of the CRAM. Note that chr prefix must be consistent across files.`);
+      console.warn(`Reference sequence "${chrom}" was not found in the header of the CRAM. Note that chr prefix must be consistent across files.`);
         return [];
     }
 

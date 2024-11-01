@@ -168,8 +168,8 @@
 					<div class="tab-content">
 						<div id="tab_input_alignments" class="tab-pane fade in active">
 							<ul class="nav nav-tabs">
-								<li class="active"><a data-toggle="tab" href="#url_bam">BAM from URL (recommended)</a></li>
-								<li><a data-toggle="tab" href="#bam">Local BAM</a></li>
+								<li class="active"><a data-toggle="tab" href="#url_bam">BAM/CRAM from URL (recommended)</a></li>
+								<li><a data-toggle="tab" href="#bam">Local BAM/CRAM</a></li>
 								<li><a data-toggle="tab" href="#coords">MUMmer coordinates</a></li>
 							</ul>
 							
@@ -178,16 +178,19 @@
 							<!-- Bam input -->
 								<div id="url_bam" class="tab-pane active">
 									<input type="text" id="bam_url_input" placeholder="https://" style="width: 100%">
-									<input type="submit" id="submit_bam_url" value="Load bam file from a URL">
+									<input type="submit" id="submit_bam_url" value="Load BAM/CRAM file from a URL">
 									<p>Make sure the bam file exists and that it has a corresponding index (.bai or .csi) file with an identical filename except for the addition of the .bai or .csi suffix.
 									</p>
 
 									<p>You can also load multiple bams, comma-separated.</p>
+									<input type="text" id="cram_ref_url_input" placeholder="https://" style="width: 100%">
+									<p>Reference genome for CRAM files. Make sure it exists and has a corresponding index (.fai) file with an identical filename except for the addition of the .fai suffix.</p>
+
 									<strong>Here are some sample BAMs to play with:</strong>
 									<div id="bam_presets"></div>
 								</div>
-								<div id="bam" class="tab-pane">
-									<p>Select bam and corresponding index (bai/csi)</p>
+									<div id="bam" class="tab-pane">
+									<p>Select bam and corresponding index (bai/csi) including reference genome for cram files (fa and fai)</p>
 									<input type="file" name="files[]" id="bam_file"	multiple />
 								</div>
 							<!-- Coords input -->
