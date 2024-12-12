@@ -5695,10 +5695,14 @@ export async function read_bam_urls(urls, in_background = false) {
       return;
     }
 
-    let new_bam = new BamFile([url]);
-    await new_bam.mount();
-    await new_bam.parseHeader();
-    _Bams.push(new_bam);
+    if (url.endsWith("cram")) {
+      let new_aln = new CramFile([url]);
+    } else {
+      let new_aln = new BamFile([url]);
+    }
+    await new_aln.mount();
+    await new_aln.parseHeader();
+    _Bams.push(new_aln);
   }
 
   if (urls.length == 1) {
